@@ -4,13 +4,20 @@ module Spree
       module Order
         def self.included(base)
           base.class_eval do
+            helper_method :simple_current_order
             helper_method :current_order
             helper_method :current_currency
             before_filter :set_current_order
           end
         end
 
+        # Used in the link_to_cart helper.
+        def simple_current_order
+          @order ||= Spree::Order.find_by(id: session[:order_id], currency: current_currency)
+        end
+
         # The current incomplete order from the session for use in cart and during checkout
+        # Used when we need to display the line items and adjustments of an order.
         def current_order(create_order_if_necessary = false)
           return @current_order if @current_order
           if session[:order_id]
