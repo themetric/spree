@@ -20,10 +20,12 @@ module Spree
         # Used when we need to display the line items and adjustments of an order.
         def current_order(create_order_if_necessary = false)
           return @current_order if @current_order
+
           if session[:order_id]
             current_order = Spree::Order.includes(:adjustments).find_by(id: session[:order_id], currency: current_currency)
             @current_order = current_order unless current_order.try(:completed?)
           end
+
           if create_order_if_necessary and (@current_order.nil? or @current_order.completed?)
             @current_order = Spree::Order.new(currency: current_currency)
             @current_order.user ||= try_spree_current_user
@@ -36,6 +38,7 @@ module Spree
               session[:access_token] = @current_order.token
             end
           end
+
           if @current_order
             @current_order.last_ip_address = ip_address
             session[:order_id] = @current_order.id
@@ -57,7 +60,7 @@ module Spree
             last_incomplete_order = user.last_incomplete_spree_order
             if session[:order_id].nil? && last_incomplete_order
               session[:order_id] = last_incomplete_order.id
-            elsif current_order(true) && last_incomplete_order && current_order != last_incomplete_order
+            elsif current_order && last_incomplete_order && current_order != last_incomplete_order
               current_order.merge!(last_incomplete_order, user)
             end
           end
