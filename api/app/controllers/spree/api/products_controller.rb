@@ -10,6 +10,7 @@ module Spree
         end
 
         @products = @products.page(params[:page]).per(params[:per_page])
+        expires_in 3.minutes, :public => true
       end
 
       def show
