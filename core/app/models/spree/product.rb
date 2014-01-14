@@ -62,6 +62,7 @@ module Spree
     after_create :add_properties_and_option_types_from_prototype
     after_create :build_variants_from_option_values_hash, if: :option_values_hash
     after_save :save_master
+    after_touch :touch_taxons
 
     delegate :images, to: :master, prefix: true
     alias_method :images, :master_images
@@ -250,6 +251,10 @@ module Spree
 
       def punch_permalink
         update_attribute :permalink, "#{Time.now.to_i}_#{permalink}" # punch permalink with date prefix
+      end
+
+      def touch_taxons
+        self.taxons.each(&:touch)
       end
   end
 end
