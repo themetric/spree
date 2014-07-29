@@ -5,6 +5,7 @@ module Spree
 
     validates :property, presence: true
     validates :value, length: { maximum: 255 }
+    validates :value, uniqueness: {scope: [:product_id]}
 
     default_scope -> { order("#{self.table_name}.position") }
 

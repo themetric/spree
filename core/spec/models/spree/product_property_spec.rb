@@ -8,6 +8,21 @@ describe Spree::ProductProperty do
       pp.value = "x" * 256
       pp.should_not be_valid
     end
+
+    context "with an invalid duplicate property" do
+      before :each do
+        prop = create(:product_property, property_name: "Brand", value: "Rolex")
+        @prop2 = build(:product_property, property_name: "Brand", value: "Rolex")
+      end
+
+      it "should not be valid" do
+        @prop2.should_not be_valid
+      end
+
+      it "should have an error on property value" do
+        @prop2.should have(1).error_on(:value)
+      end
+    end
   end
 
   context "touching" do
