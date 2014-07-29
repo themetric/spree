@@ -401,6 +401,34 @@ module Spree
           json_response["errors"]["name"].should == ["can't be blank"]
         end
 
+        context "updating embedded product properties" do
+          before do
+            product.set_property('spree', 'rocks')
+            property = product.product_properties.first
+            product_data.merge!({
+              product_properties_attributes: [{
+                id: property.id
+                property_name: "SpreeStill",
+                value: "StillRocks"
+              }]
+            })
+            api_put :update, :id => product.to_param, :product => product_data
+          end
+
+          it "updated the product property" do
+            json_response["product_properties"][0]["property_name"].should == "SpreeStill"
+            json_response["product_properties"][0]["property_name"].should == "StillRocks"
+          end
+
+          it "did not create a new product property" do
+            product.product_properties.count.should == 1
+          end
+
+          context "when adding duplicate properties"
+
+          end
+        end
+
         # Regression test for #4123
         it "puts the created product in the given taxon" do
           api_put :update, :id => product.to_param, :product => {:taxon_ids => taxon_1.id.to_s}

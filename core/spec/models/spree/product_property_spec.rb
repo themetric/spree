@@ -10,17 +10,19 @@ describe Spree::ProductProperty do
     end
 
     context "with an invalid duplicate property" do
-      before :each do
-        prop = create(:product_property, property_name: "Brand", value: "Rolex")
-        @prop2 = build(:product_property, property_name: "Brand", value: "Rolex")
-      end
+      let!(:prop) { create(:product_property, property_name: "Brand", value: "Rolex") }
+      let(:prop2) { build(:product_property, property_name: "Brand", value: "Rolex") }
 
       it "should not be valid" do
-        @prop2.should_not be_valid
+        prop2.should_not be_valid
       end
 
       it "should have an error on property value" do
-        @prop2.should have(1).error_on(:value)
+        prop2.should have(1).error_on(:value)
+      end
+
+      it "should display an error message" do
+        prop2.errors.messages[:value].should == 'has already been used for this product'
       end
     end
   end

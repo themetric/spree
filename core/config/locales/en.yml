@@ -264,6 +264,10 @@ en:
           attributes:
             amount:
               greater_than_allowed: is greater than the allowed amount.
+        spree/product_property:
+          attributes:
+            value:
+              duplicate_property_value: has already been used for this product
 
   devise:
     confirmations:

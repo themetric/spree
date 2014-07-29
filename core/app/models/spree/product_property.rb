@@ -5,9 +5,16 @@ module Spree
 
     validates :property, presence: true
     validates :value, length: { maximum: 255 }
-    validates :value, uniqueness: {scope: [:product_id]}
+    validate :unique_product_property
 
     default_scope -> { order("#{self.table_name}.position") }
+
+    def unique_product_property
+      pp = ProductProperty.where(value: value).first
+      if  pp && pp.property_name == property_name
+        errors.add(:value, Spree.t(:duplicate_property_value))
+      end
+    end
 
     # virtual attributes for use with AJAX completion stuff
     def property_name
