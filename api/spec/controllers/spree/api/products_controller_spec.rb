@@ -435,24 +435,26 @@ module Spree
             property = product.product_properties.first
             product_data.merge!({
               product_properties_attributes: [{
-                id: property.id
+                id: property.id,
                 property_name: "SpreeStill",
                 value: "StillRocks"
               }]
             })
+            puts product_data
             api_put :update, :id => product.to_param, :product => product_data
           end
 
           it "updated the product property" do
-            json_response["product_properties"][0]["property_name"].should == "SpreeStill"
-            json_response["product_properties"][0]["property_name"].should == "StillRocks"
+            puts json_response["product_properties"]
+            json_response["product_properties"].first["property_name"].should == "SpreeStill"
+            json_response["product_properties"].first["property_name"].should == "StillRocks"
           end
 
           it "did not create a new product property" do
-            product.product_properties.count.should == 1
+            expect(product.product_properties.count).to eq(1)
           end
 
-          context "when adding duplicate properties"
+          context "when adding duplicate properties" do
 
           end
         end
