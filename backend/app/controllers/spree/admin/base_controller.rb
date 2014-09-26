@@ -7,8 +7,8 @@ module Spree
       helper 'spree/admin/tables'
       layout '/spree/layouts/admin'
 
-      before_filter :check_alerts
-      before_filter :authorize_admin
+      before_action :check_alerts
+      before_action :authorize_admin
 
       protected
 
@@ -87,6 +87,12 @@ module Spree
           Spree::Backend::Config[:locale]
         end
 
+        def can_not_transition_without_customer_info
+          unless @order.billing_address.present?
+            flash[:notice] = Spree.t(:fill_in_customer_info)
+            redirect_to edit_admin_order_customer_url(@order)
+          end
+        end
     end
   end
 end

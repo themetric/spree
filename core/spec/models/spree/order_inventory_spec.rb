@@ -50,7 +50,7 @@ describe Spree::OrderInventory do
         variant.stock_items.destroy_all
 
         # The before_save callback in LineItem would verify inventory
-        line_item = order.contents.add variant, 1, nil, shipment
+        line_item = order.contents.add variant, 1, shipment: shipment
 
         units = shipment.inventory_units_for(line_item.variant)
         expect(units.count).to eq 1
@@ -99,10 +99,10 @@ describe Spree::OrderInventory do
 
     it 'should select first non-shipped shipment that already contains given variant' do
       shipment = subject.send(:determine_target_shipment)
-      shipment.shipped?.should be_false
+      shipment.shipped?.should be false
       shipment.inventory_units_for(variant).should_not be_empty
 
-      variant.stock_location_ids.include?(shipment.stock_location_id).should be_true
+      variant.stock_location_ids.include?(shipment.stock_location_id).should be true
     end
 
     context "when no shipments already contain this varint" do
@@ -114,9 +114,9 @@ describe Spree::OrderInventory do
       it 'selects first non-shipped shipment that leaves from same stock_location' do
         shipment = subject.send(:determine_target_shipment)
         shipment.reload
-        shipment.shipped?.should be_false
+        shipment.shipped?.should be false
         shipment.inventory_units_for(variant).should be_empty
-        variant.stock_location_ids.include?(shipment.stock_location_id).should be_true
+        variant.stock_location_ids.include?(shipment.stock_location_id).should be true
       end
     end
   end

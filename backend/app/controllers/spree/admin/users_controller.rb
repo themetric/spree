@@ -3,11 +3,11 @@ module Spree
     class UsersController < ResourceController
       rescue_from Spree::Core::DestroyWithOrdersError, :with => :user_destroy_with_orders_error
 
-      after_filter :sign_in_if_change_own_password, :only => :update
+      after_action :sign_in_if_change_own_password, only: :update
 
       # http://spreecommerce.com/blog/2010/11/02/json-hijacking-vulnerability/
-      before_filter :check_json_authenticity, :only => :index
-      before_filter :load_roles
+      before_action :check_json_authenticity, only: :index
+      before_action :load_roles
 
       def index
         respond_with(@collection) do |format|
@@ -66,7 +66,7 @@ module Spree
 
       def orders
         params[:q] ||= {}
-        @search = Spree::Order.ransack(params[:q].merge(user_id_eq: @user.id))
+        @search = Spree::Order.reverse_chronological.ransack(params[:q].merge(user_id_eq: @user.id))
         @orders = @search.result.page(params[:page]).per(Spree::Config[:admin_products_per_page])
       end
 

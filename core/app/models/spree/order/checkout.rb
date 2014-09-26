@@ -38,8 +38,8 @@ module Spree
             # To avoid multiple occurrences of the same transition being defined
             # On first definition, state_machines will not be defined
             state_machines.clear if respond_to?(:state_machines)
-            state_machine :state, :initial => :cart, :use_transactions => false, :action => :save_state do
-              klass.next_event_transitions.each { |t| transition(t.merge(:on => :next)) }
+            state_machine :state, initial: :cart, use_transactions: false, action: :save_state do
+              klass.next_event_transitions.each { |t| transition(t.merge(on: :next)) }
 
               # Persist the state on the order
               after_transition do |order, transition|
@@ -54,54 +54,58 @@ module Spree
               end
 
               event :cancel do
-                transition :to => :canceled, :if => :allow_cancel?
+                transition to: :canceled, if: :allow_cancel?
               end
 
               event :return do
-                transition :to => :returned, :from => :awaiting_return, :unless => :awaiting_returns?
+                transition to: :returned, from: [:complete, :awaiting_return, :canceled], if: :all_inventory_units_returned?
               end
 
               event :resume do
-                transition :to => :resumed, :from => :canceled, :if => :canceled?
+                transition to: :resumed, from: :canceled, if: :canceled?
               end
 
               event :authorize_return do
-                transition :to => :awaiting_return
+                transition to: :awaiting_return
               end
 
               if states[:payment]
-                before_transition :to => :complete do |order|
-                  if order.payment_required? && order.payments.empty?
+                before_transition to: :complete do |order|
+                  if order.payment_required? && order.payments.valid.empty?
                     order.errors.add(:base, Spree.t(:no_payment_found))
                     false
                   elsif order.payment_required?
                     order.process_payments!
                   end
                 end
+                after_transition to: :complete, do: :persist_user_credit_card
+                before_transition to: :payment, do: :set_shipments_cost
+                before_transition to: :payment, do: :create_tax_charge!
+                before_transition to: :payment, do: :assign_default_credit_card
               end
 
-              before_transition :from => :cart, :do => :ensure_line_items_present
+              before_transition from: :cart, do: :ensure_line_items_present
 
               if states[:address]
-                before_transition :from => :address, :do => :create_tax_charge!
-              end
-
-              if states[:payment]
-                before_transition :to => :payment, :do => :set_shipments_cost
-                before_transition :to => :payment, :do => :create_tax_charge!
+                before_transition from: :address, do: :create_tax_charge!
+                before_transition to: :address, do: :assign_default_addresses!
+                before_transition from: :address, do: :persist_user_address!
               end
 
               if states[:delivery]
-                before_transition :to => :delivery, :do => :create_proposed_shipments
-                before_transition :to => :delivery, :do => :ensure_available_shipping_rates
-                before_transition :from => :delivery, :do => :apply_free_shipping_promotions
+                before_transition to: :delivery, do: :create_proposed_shipments
+                before_transition to: :delivery, do: :ensure_available_shipping_rates
+                before_transition to: :delivery, do: :set_shipments_cost
+                before_transition from: :delivery, do: :apply_free_shipping_promotions
               end
 
-              after_transition :to => :complete, :do => :finalize!
-              after_transition :to => :resumed,  :do => :after_resume
-              after_transition :to => :canceled, :do => :after_cancel
+              before_transition to: :resumed, do: :ensure_line_items_are_in_stock
 
-              after_transition :from => any - :cart, :to => any - [:confirm, :complete] do |order|
+              after_transition to: :complete, do: :finalize!
+              after_transition to: :resumed,  do: :after_resume
+              after_transition to: :canceled, do: :after_cancel
+
+              after_transition from: any - :cart, to: any - [:confirm, :complete] do |order|
                 order.update_totals
                 order.persist_totals
               end
@@ -113,7 +117,7 @@ module Spree
           def self.go_to_state(name, options={})
             self.checkout_steps[name] = options
             previous_states.each do |state|
-              add_transition({:from => state, :to => name}.merge(options))
+              add_transition({from: state, to: name}.merge(options))
             end
             if options[:if]
               self.previous_states << name
@@ -195,7 +199,7 @@ module Spree
           def has_checkout_step?(step)
             step.present? && self.checkout_steps.include?(step)
           end
-          
+
           def passed_checkout_step?(step)
             has_checkout_step?(step) && checkout_step_index(step) < checkout_step_index(self.state)
           end
@@ -221,12 +225,14 @@ module Spree
             success = false
             @updating_params = params
             run_callbacks :updating_from_params do
-              attributes = @updating_params[:order] ? @updating_params[:order].permit(permitted_params) : {}
+              attributes = @updating_params[:order] ? @updating_params[:order].permit(permitted_params).delete_if { |k,v| v.nil? } : {}
 
               # Set existing card after setting permitted parameters because
               # rails would slice parameters containg ruby objects, apparently
-              if @updating_params[:existing_card].present?
-                credit_card = CreditCard.find(@updating_params[:existing_card])
+              existing_card_id = @updating_params[:order] ? @updating_params[:order][:existing_card] : nil
+
+              if existing_card_id.present?
+                credit_card = CreditCard.find existing_card_id
                 if credit_card.user_id != self.user_id || credit_card.user_id.blank?
                   raise Core::GatewayError.new Spree.t(:invalid_credit_card)
                 end
@@ -250,23 +256,63 @@ module Spree
             success
           end
 
+          def assign_default_addresses!
+            if self.user
+              self.bill_address = user.bill_address.try(:clone) if !self.bill_address_id && user.bill_address.try(:valid?)
+              # Skip setting ship address if order doesn't have a delivery checkout step
+              # to avoid triggering validations on shipping address
+              self.ship_address = user.ship_address.try(:clone) if !self.ship_address_id && user.ship_address.try(:valid?) && self.checkout_steps.include?("delivery")
+            end
+          end
+
+          def persist_user_address!
+            if !self.temporary_address && self.user && self.user.respond_to?(:persist_order_address) && self.bill_address_id
+              self.user.persist_order_address(self)
+            end
+          end
+
+          def persist_user_credit_card
+            if !self.temporary_credit_card && self.user_id && self.valid_credit_cards.present?
+              default_cc = self.valid_credit_cards.first
+              default_cc.user_id = self.user_id
+              default_cc.default = true
+              default_cc.save
+            end
+          end
+
+          def assign_default_credit_card
+            if self.payments.from_credit_card.count == 0 && self.user && self.user.default_credit_card.try(:valid?)
+              cc = self.user.default_credit_card
+              self.payments.create!(payment_method_id: cc.payment_method_id, source: cc)
+            end
+          end
+
           private
           # For payment step, filter order parameters to produce the expected nested
           # attributes for a single payment and its source, discarding attributes
           # for payment methods other than the one selected
+          #
+          # In case a existing credit card is provided it needs to build the payment
+          # attributes from scratch so we can set the amount. example payload:
+          #
+          #   {
+          #     "order": {
+          #       "existing_card": "2"
+          #     }
+          #   }
+          #
           def update_params_payment_source
-            if has_checkout_step?("payment") && self.payment?
-              if @updating_params[:payment_source].present?
-                source_params = @updating_params.delete(:payment_source)[@updating_params[:order][:payments_attributes].first[:payment_method_id].to_s]
+            if @updating_params[:payment_source].present?
+              source_params = @updating_params.delete(:payment_source)[@updating_params[:order][:payments_attributes].first[:payment_method_id].to_s]
 
-                if source_params
-                  @updating_params[:order][:payments_attributes].first[:source_attributes] = source_params
-                end
+              if source_params
+                @updating_params[:order][:payments_attributes].first[:source_attributes] = source_params
               end
+            end
 
-              if (@updating_params[:order][:payments_attributes])
-                @updating_params[:order][:payments_attributes].first[:amount] = self.total
-              end
+            if @updating_params[:order] && (@updating_params[:order][:payments_attributes] || @updating_params[:order][:existing_card])
+              @updating_params[:order][:payments_attributes] ||= [{}]
+              @updating_params[:order][:payments_attributes].first[:amount] = self.total
             end
           end
         end

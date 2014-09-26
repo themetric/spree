@@ -1,7 +1,7 @@
 module Spree
   class ProductsController < Spree::StoreController
-    before_filter :load_product, :only => :show
-    before_filter :load_taxon, :only => :index
+    before_action :load_product, only: :show
+    before_action :load_taxon, only: :index
 
     rescue_from ActiveRecord::RecordNotFound, :with => :render_404
     helper 'spree/taxons'
@@ -9,7 +9,7 @@ module Spree
     respond_to :html
 
     def index
-      @searcher = build_searcher(params)
+      @searcher = build_searcher(params.merge(include_images: true))
       @products = @searcher.retrieve_products
       @taxonomies = Spree::Taxonomy.includes(root: :children)
     end
@@ -22,7 +22,7 @@ module Spree
 
     private
       def accurate_title
-        @product ? @product.name : super
+        @product ? @product.meta_title || @product.name : super
       end
 
       def load_product

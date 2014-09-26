@@ -19,7 +19,7 @@ describe Spree::Address do
                          :phone => 'phone',
                          :state_id => state.id,
                          :state_name => state.name,
-                         :zipcode => 'zip_code')
+                         :zipcode => '10001')
 
       cloned = original.clone
 
@@ -137,7 +137,42 @@ describe Spree::Address do
     it "requires zipcode" do
       address.zipcode = ""
       address.valid?
-      address.should have(1).error_on(:zipcode)
+      address.errors['zipcode'].should include("can't be blank")
+    end
+
+    context "zipcode validation" do
+      it "validates the zipcode" do
+        address.country.stub(:iso).and_return('US')
+        address.zipcode = 'abc'
+        address.valid?
+        address.errors['zipcode'].should include('is invalid')
+      end
+
+      context 'does not validate' do
+        it 'does not have a country' do
+          address.country = nil
+          address.valid?
+          address.errors['zipcode'].should_not include('is invalid')
+        end
+
+        it 'does not have an iso' do
+          address.country.stub(:iso).and_return(nil)
+          address.valid?
+          address.errors['zipcode'].should_not include('is invalid')
+        end
+
+        it 'does not have a zipcode' do
+          address.zipcode = ""
+          address.valid?
+          address.errors['zipcode'].should_not include('is invalid')
+        end
+
+        it 'does not have a supported country iso' do
+          address.country.stub(:iso).and_return('BO')
+          address.valid?
+          address.errors['zipcode'].should_not include('is invalid')
+        end
+      end
     end
 
     context "phone not required" do
@@ -146,7 +181,7 @@ describe Spree::Address do
       it "shows no errors when phone is blank" do
         address.phone = ""
         address.valid?
-        address.should have(:no).errors_on(:phone)
+        expect(address.errors[:phone].size).to eq 0
       end
     end
 
@@ -156,7 +191,7 @@ describe Spree::Address do
       it "shows no errors when phone is blank" do
         address.zipcode = ""
         address.valid?
-        address.should have(:no).errors_on(:zipcode)
+        expect(address.errors[:zipcode].size).to eq 0
       end
     end
   end
@@ -244,6 +279,6 @@ describe Spree::Address do
 
   context "defines require_phone? helper method" do
     let(:address) { stub_model(Spree::Address) }
-    specify { address.instance_eval{ require_phone? }.should be_true}
+    specify { address.instance_eval{ require_phone? }.should be true}
   end
 end

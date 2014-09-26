@@ -15,6 +15,10 @@ module Spree
     after_create :create_stock_items, :if => "self.propagate_all_variants?"
     after_save :ensure_one_default
 
+    def state_text
+      state.try(:abbr) || state.try(:name) || state_name
+    end
+    
     # Wrapper for creating a new stock item respecting the backorderable config
     def propagate_variant(variant)
       self.stock_items.create!(variant: variant, backorderable: self.backorderable_default)
@@ -89,9 +93,9 @@ module Spree
 
       def ensure_one_default
         if self.default
-          StockLocation.where.not(id: self.id).each do |stock_location|
+          StockLocation.where(default: true).where.not(id: self.id).each do |stock_location|
             stock_location.default = false
-            stock_location.save! if stock_location.changed?
+            stock_location.save!
           end
         end
       end

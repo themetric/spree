@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe "Coupon code promotions", :js => true do
+describe "Coupon code promotions", js: true do
   let!(:country) { create(:country, :name => "United States of America", :states_required => true) }
   let!(:state) { create(:state, :name => "Alabama", :country => country) }
   let!(:zone) { create(:zone) }
@@ -110,7 +110,7 @@ describe "Coupon code promotions", :js => true do
         before do
           rule = Spree::Promotion::Rules::ItemTotal.new
           rule.promotion = promotion
-          rule.preferred_amount = 100
+          rule.preferred_amount_min = 100
           rule.save
         end
 
@@ -119,7 +119,7 @@ describe "Coupon code promotions", :js => true do
 
           fill_in "order_coupon_code", :with => "onetwo"
           click_button "Update"
-          page.should have_content(Spree.t(:coupon_code_not_eligible))
+          page.should have_content(Spree.t(:item_total_less_than_or_equal, scope: [:eligibility_errors, :messages], amount: "$100.00"))
         end
       end
 
@@ -165,6 +165,58 @@ describe "Coupon code promotions", :js => true do
 
           within '.cart-total' do
             page.should have_content("$48.00")
+          end
+        end
+      end
+
+      context "calculates the correct amount of money saved with flat 100% promotions on the whole order" do
+        before do
+          calculator = Spree::Calculator::FlatPercentItemTotal.new
+          calculator.preferred_flat_percent = 100
+
+          action = Spree::Promotion::Actions::CreateAdjustment.new
+          action.calculator = calculator
+          action.promotion = promotion
+          action.save
+
+          promotion.promotion_actions = [action]
+          promotion.save
+
+          create(:product, name: "Spree Mug", price: 10)
+        end
+
+        specify do
+          visit spree.root_path
+          click_link "Spree Mug"
+          click_button "add-to-cart-button"
+
+          visit spree.cart_path
+
+          within '.cart-total' do
+            page.should have_content("$30.00")
+          end
+
+          fill_in "order_coupon_code", with: "onetwo"
+          click_button "Update"
+
+          within '#cart_adjustments' do
+            page.should have_content("Promotion (Onetwo) -$30.00")
+          end
+
+          within '.cart-total' do
+            page.should have_content("$0.00")
+          end
+
+          fill_in "order_line_items_attributes_0_quantity", with: 2
+          fill_in "order_line_items_attributes_1_quantity", with: 2
+          click_button "Update"
+
+          within '#cart_adjustments' do
+            page.should have_content("Promotion (Onetwo) -$60.00")
+          end
+
+          within '.cart-total' do
+            page.should have_content("$0.00")
           end
         end
       end

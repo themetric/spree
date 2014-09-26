@@ -7,6 +7,7 @@ module Spree
     belongs_to :line_item, class_name: "Spree::LineItem", inverse_of: :inventory_units
 
     has_many :return_items, inverse_of: :inventory_unit
+    has_one :original_return_item, class_name: "Spree::ReturnItem", foreign_key: :exchange_inventory_unit_id
 
     scope :backordered, -> { where state: 'backordered' }
     scope :on_hand, -> { where state: 'on_hand' }
@@ -67,8 +68,8 @@ module Spree
       Spree::Variant.unscoped { super }
     end
 
-    def pre_tax_amount
-      weighted_order_adjustment_amount + weighted_line_item_pre_tax_amount
+    def current_or_new_return_item
+      Spree::ReturnItem.from_inventory_unit(self)
     end
 
     def additional_tax_total
@@ -82,29 +83,20 @@ module Spree
     private
 
       def allow_ship?
-        Spree::Config[:allow_backorder_shipping] || self.on_hand?
+        self.on_hand?
       end
 
       def update_order
+        self.reload
         order.update!
-      end
-
-      def weighted_line_item_pre_tax_amount
-        line_item.pre_tax_amount * percentage_of_line_item
-      end
-
-      def weighted_order_adjustment_amount
-        order.adjustments.eligible.non_tax.sum(:amount) * percentage_of_order_total
-      end
-
-      def percentage_of_order_total
-        return 0.0 if order.pre_tax_item_amount.zero?
-        weighted_line_item_pre_tax_amount / order.pre_tax_item_amount
       end
 
       def percentage_of_line_item
         1 / BigDecimal.new(line_item.quantity)
       end
+
+      def current_return_item
+        return_items.not_cancelled.first
+      end
   end
 end
-

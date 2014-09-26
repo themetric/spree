@@ -3,6 +3,8 @@ module Spree
     MATCH_POLICIES = %w(all any)
     UNACTIVATABLE_ORDER_STATES = ["complete", "awaiting_return", "returned"]
 
+    attr_reader :eligibility_errors
+
     belongs_to :promotion_category
 
     has_many :promotion_rules, autosave: true, dependent: :destroy
@@ -25,6 +27,7 @@ module Spree
     before_save :normalize_blank_values
 
     scope :coupons, ->{ where("#{table_name}.code IS NOT NULL") }
+    scope :applied, -> { joins(:orders).uniq }
 
     def self.advertised
       where(advertise: true)
@@ -74,7 +77,7 @@ module Spree
 
     # called anytime order.update! happens
     def eligible?(promotable)
-      return false if expired? || usage_limit_exceeded?(promotable)
+      return false if expired? || usage_limit_exceeded?(promotable) || blacklisted?(promotable)
       !!eligible_rules(promotable, {})
     end
 
@@ -91,12 +94,22 @@ module Spree
       if match_all?
         # If there are rules for this promotion, but no rules for this
         # particular promotable, then the promotion is ineligible by default.
-        return nil unless specific_rules.all?(&eligible)
+        unless specific_rules.all?(&eligible)
+          @eligibility_errors = specific_rules.map(&:eligibility_errors).detect(&:present?)
+          return nil
+        end
         specific_rules
       else
-        return nil unless specific_rules.any?(&eligible)
+        unless specific_rules.any?(&eligible)
+          @eligibility_errors = specific_rules.map(&:eligibility_errors).detect(&:present?)
+          return nil
+        end
         specific_rules.select(&eligible)
       end
+    end
+
+    def products
+      rules.where(type: "Spree::Promotion::Rules::Product").map(&:products).flatten.uniq
     end
 
     def usage_limit_exceeded?(promotable)
@@ -135,6 +148,16 @@ module Spree
     end
 
     private
+    def blacklisted?(promotable)
+      case promotable
+      when Spree::LineItem
+        !promotable.product.promotionable?
+      when Spree::Order
+        promotable.line_items.any? &&
+          !promotable.line_items.joins(:product).where(spree_products: {promotionable: true}).any?
+      end
+    end
+
     def normalize_blank_values
       [:code, :path].each do |column|
         self[column] = nil if self[column].blank?

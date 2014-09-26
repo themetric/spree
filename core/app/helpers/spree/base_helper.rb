@@ -68,17 +68,17 @@ module Spree
     end
 
     def flash_messages(opts = {})
-      opts[:ignore_types] = [:order_completed].concat(Array(opts[:ignore_types]) || [])
+      ignore_types = ["order_completed"].concat(Array(opts[:ignore_types]).map(&:to_s) || [])
 
       flash.each do |msg_type, text|
-        unless opts[:ignore_types].include?(msg_type)
+        unless ignore_types.include?(msg_type)
           concat(content_tag :div, text, class: "flash #{msg_type}")
         end
       end
       nil
     end
 
-    def breadcrumbs(taxon, separator="&nbsp;&raquo;&nbsp;")
+    def breadcrumbs(taxon, separator="&nbsp;&raquo;&nbsp;", breadcrumb_class="inline")
       return "" if current_page?("/") || taxon.nil?
 
       crumbs = [[Spree.t(:home), spree.root_path]]
@@ -101,7 +101,7 @@ module Spree
         end
       end
 
-      content_tag(:nav, content_tag(:ul, raw(crumbs.map(&:mb_chars).join), class: 'inline'), id: 'breadcrumbs', class: 'sixteen columns')
+      content_tag(:nav, content_tag(:ul, raw(crumbs.map(&:mb_chars).join), class: breadcrumb_class), id: 'breadcrumbs', class: 'sixteen columns')
     end
 
     def taxons_tree(root_taxon, current_taxon, max_level = 1)
@@ -163,7 +163,7 @@ module Spree
     end
 
     def link_to_tracking(shipment, options = {})
-      return unless shipment.tracking
+      return unless shipment.tracking && shipment.shipping_method
 
       if shipment.tracking_url
         link_to(shipment.tracking, shipment.tracking_url, options)

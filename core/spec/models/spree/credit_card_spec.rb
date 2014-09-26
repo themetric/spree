@@ -42,31 +42,31 @@ describe Spree::CreditCard do
   context "#can_capture?" do
     it "should be true if payment is pending" do
       payment = mock_model(Spree::Payment, pending?: true, created_at: Time.now)
-      credit_card.can_capture?(payment).should be_true
+      credit_card.can_capture?(payment).should be true
     end
 
     it "should be true if payment is checkout" do
       payment = mock_model(Spree::Payment, pending?: false, checkout?: true, created_at: Time.now)
-      credit_card.can_capture?(payment).should be_true
+      credit_card.can_capture?(payment).should be true
     end
   end
 
   context "#can_void?" do
     it "should be true if payment is not void" do
-      payment = mock_model(Spree::Payment, void?: false)
-      credit_card.can_void?(payment).should be_true
+      payment = mock_model(Spree::Payment, failed?: false, void?: false)
+      credit_card.can_void?(payment).should be true
     end
   end
 
   context "#can_credit?" do
     it "should be false if payment is not completed" do
       payment = mock_model(Spree::Payment, completed?: false)
-      credit_card.can_credit?(payment).should be_false
+      credit_card.can_credit?(payment).should be false
     end
 
     it "should be false when credit_allowed is zero" do
       payment = mock_model(Spree::Payment, completed?: true, credit_allowed: 0, order: mock_model(Spree::Order, payment_state: 'credit_owed'))
-      credit_card.can_credit?(payment).should be_false
+      credit_card.can_credit?(payment).should be false
     end
   end
 
@@ -152,41 +152,31 @@ describe Spree::CreditCard do
         expect(credit_card.errors[:verification_value]).to be_empty
       end
     end
-  end
 
-  context "#create" do
-    context 'with valid attributes' do
-      before do
-        credit_card.attributes = valid_credit_card_attributes
-        credit_card.save!
-      end
-
-      let!(:persisted_card) { Spree::CreditCard.find(credit_card.id) }
-
-      it "should not actually store the number" do
-        persisted_card.number.should be_blank
-      end
-
-      it "should not actually store the security code" do
-        persisted_card.verification_value.should be_blank
+    context "imported is true" do
+      it "does not validate presence of number or cvv" do
+        credit_card.imported = true
+        credit_card.valid?
+        expect(credit_card.errors[:number]).to be_empty
+        expect(credit_card.errors[:verification_value]).to be_empty
       end
     end
+  end
 
-    context 'with payment profile' do
-      before do
-        credit_card.attributes = valid_credit_card_attributes.merge(gateway_customer_profile_id: 'abc', gateway_payment_profile_id: '123')
-        credit_card.save!
-        @profile_card = Spree::CreditCard.new(gateway_customer_profile_id: credit_card.gateway_customer_profile_id, gateway_payment_profile_id: credit_card.gateway_payment_profile_id)
-        @profile_card.save!
-      end
+  context "#save" do
+    before do
+      credit_card.attributes = valid_credit_card_attributes
+      credit_card.save!
+    end
 
-      it 'should fill in missing attributes from existing card' do
-        expect(@profile_card.cc_type).to eq(credit_card.cc_type)
-        expect(@profile_card.last_digits).to eq(credit_card.last_digits)
-        expect(@profile_card.month).to eq(credit_card.month.to_s)
-        expect(@profile_card.name).to eq(credit_card.name)
-        expect(@profile_card.year).to eq(credit_card.year.to_s)
-      end
+    let!(:persisted_card) { Spree::CreditCard.find(credit_card.id) }
+
+    it "should not actually store the number" do
+      persisted_card.number.should be_blank
+    end
+
+    it "should not actually store the security code" do
+      persisted_card.verification_value.should be_blank
     end
   end
 
@@ -347,5 +337,37 @@ describe Spree::CreditCard do
       am_card.last_name.should == "van Beethoven"
       am_card.verification_value.should == 123
     end
+  end
+
+  it 'ensures only one credit card per user is default at a time' do
+    user = FactoryGirl.create(:user)
+    first = FactoryGirl.create(:credit_card, user: user, default: true)
+    second = FactoryGirl.create(:credit_card, user: user, default: true)
+
+    first.reload.default.should eq false
+    second.reload.default.should eq true
+
+    first.default = true
+    first.save!
+
+    first.reload.default.should eq true
+    second.reload.default.should eq false
+  end
+
+  it 'allows default credit cards for different users' do
+    first = FactoryGirl.create(:credit_card, user: FactoryGirl.create(:user), default: true)
+    second = FactoryGirl.create(:credit_card, user: FactoryGirl.create(:user), default: true)
+
+    first.reload.default.should eq true
+    second.reload.default.should eq true
+  end
+
+  it 'allows this card to save even if the previously default card has expired' do
+    user = FactoryGirl.create(:user)
+    first = FactoryGirl.create(:credit_card, user: user, default: true)
+    second = FactoryGirl.create(:credit_card, user: user, default: false)
+    first.update_columns(year: DateTime.now.year, month: 1.month.ago.month)
+
+    expect { second.update_attributes!(default: true) }.not_to raise_error
   end
 end

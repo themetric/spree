@@ -1,8 +1,8 @@
 module Spree
   class Refund < Spree::Base
     belongs_to :payment, inverse_of: :refunds
-    belongs_to :return_authorization # optional
     belongs_to :reason, class_name: 'Spree::RefundReason', foreign_key: :refund_reason_id
+    belongs_to :reimbursement, inverse_of: :refunds
 
     has_many :log_entries, as: :source
 
@@ -14,32 +14,47 @@ module Spree
     validate :check_payment_environment, on: :create, if: :payment
     validate :amount_is_less_than_or_equal_to_allowed_amount, on: :create
 
-    before_create :perform!
+    after_create :perform!
     after_create :create_log_entry
+
+    scope :non_reimbursement, -> { where(reimbursement_id: nil) }
 
     def money
       Spree::Money.new(amount, { currency: payment.currency })
     end
     alias display_amount money
 
+    class << self
+      def total_amount_reimbursed_for(reimbursement)
+        reimbursement.refunds.to_a.sum(&:amount)
+      end
+    end
+
+    def description
+      payment.payment_method.name
+    end
+
     private
 
     # attempts to perform the refund.
     # raises an error if the refund fails.
     def perform!
+      return true if transaction_id.present?
+
       credit_cents = Spree::Money.new(amount.to_f, currency: payment.currency).money.cents
 
       @response = process!(credit_cents)
 
       self.transaction_id = @response.authorization
+      update_columns(transaction_id: transaction_id)
     end
 
     # return an activemerchant response object if successful or else raise an error
     def process!(credit_cents)
       response = if payment.payment_method.payment_profiles_supported?
-        payment.payment_method.credit(credit_cents, payment.source, payment.transaction_id, {})
+        payment.payment_method.credit(credit_cents, payment.source, payment.transaction_id, {originator: self})
       else
-        payment.payment_method.credit(credit_cents, payment.transaction_id, {})
+        payment.payment_method.credit(credit_cents, payment.transaction_id, {originator: self})
       end
 
       if !response.success?

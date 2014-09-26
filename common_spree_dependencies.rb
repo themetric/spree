@@ -18,12 +18,15 @@ gem 'coffee-rails', '~> 4.0.0'
 gem 'sass-rails', '~> 4.0.2'
 
 group :test do
-  gem 'capybara', '~> 2.1'
-  gem 'database_cleaner', '~> 1.0.1'
-  gem 'email_spec', '1.4.0'
-  gem 'factory_girl_rails', '~> 4.4.0'
+  gem 'capybara', '~> 2.4'
+  gem 'database_cleaner', '~> 1.3'
+  gem 'email_spec'
+  gem 'factory_girl_rails', '~> 4.4'
   gem 'launchy'
-  gem 'rspec-rails', '~> 2.14.0'
+  gem 'rspec-activemodel-mocks'
+  gem 'rspec-collection_matchers'
+  gem 'rspec-its'
+  gem 'rspec-rails', '~> 3.1.0'
   gem 'simplecov'
   gem 'webmock', '1.8.11'
   gem 'poltergeist', '1.5.0'
@@ -38,4 +41,5 @@ group :test, :development do
   platforms :ruby_20, :ruby_21 do
     gem 'pry-byebug'
   end
+  gem 'rspec-retry'
 end

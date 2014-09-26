@@ -8,6 +8,7 @@ module Spree
 
     validates_presence_of :stock_location, :variant
     validates_uniqueness_of :variant_id, scope: [:stock_location_id, :deleted_at]
+    validates :count_on_hand, numericality: { greater_than_or_equal_to: 0 }, if: :verify_count_on_hand?
 
     delegate :weight, :should_track_inventory?, to: :variant
 
@@ -56,6 +57,10 @@ module Spree
     end
 
     private
+      def verify_count_on_hand?
+        count_on_hand_changed? && !backorderable? && (count_on_hand < count_on_hand_was) && (count_on_hand < 0)
+      end
+
       def count_on_hand=(value)
         write_attribute(:count_on_hand, value)
       end
@@ -72,7 +77,10 @@ module Spree
       end
 
       def conditional_variant_touch
-        if !Spree::Config.binary_inventory_cache || (count_on_hand_changed? && count_on_hand_change.any?(&:zero?))
+        # the variant_id changes from nil when a new stock location is added
+        stock_changed = (count_on_hand_changed? && count_on_hand_change.any?(&:zero?)) || variant_id_changed?
+
+        if !Spree::Config.binary_inventory_cache || stock_changed
           variant.touch
         end
       end

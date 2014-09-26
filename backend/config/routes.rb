@@ -73,6 +73,7 @@ Spree::Core::Engine.add_routes do
 
     resources :orders, :except => [:show] do
       member do
+        get :cart
         post :resend
         get :open_adjustments
         get :close_adjustments
@@ -82,6 +83,11 @@ Spree::Core::Engine.add_routes do
       end
 
       resource :customer, :controller => "orders/customer_details"
+      resources :customer_returns, only: [:index, :new, :edit, :create, :update] do
+        member do
+          put :refund
+        end
+      end
 
       resources :adjustments
       resources :line_items
@@ -96,7 +102,13 @@ Spree::Core::Engine.add_routes do
         end
 
         resources :log_entries
-        resources :refunds, only: [:new, :edit, :create, :update]
+        resources :refunds, only: [:new, :create, :edit, :update]
+      end
+
+      resources :reimbursements, only: [:create, :show, :edit, :update] do
+        member do
+          post :perform
+        end
       end
     end
 
@@ -106,9 +118,11 @@ Spree::Core::Engine.add_routes do
       end
     end
 
+    resources :return_items, only: [:update]
+
     resources :taxonomies do
       collection do
-      	post :update_positions
+        post :update_positions
       end
       member do
         get :get_children
@@ -129,6 +143,7 @@ Spree::Core::Engine.add_routes do
       end
     end
 
+    resources :reimbursement_types, :only => [:index]
     resources :refund_reasons, :except => [:show, :destroy]
     resources :return_authorization_reasons, :except => [:show, :destroy]
 
@@ -144,7 +159,6 @@ Spree::Core::Engine.add_routes do
 
     resources :stock_items, :only => [:create, :update, :destroy]
     resources :tax_rates
-    resource  :tax_settings
 
     resources :trackers
     resources :payment_methods

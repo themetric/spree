@@ -10,17 +10,20 @@ module Spree
 
       attr_accessor :current_api_user
 
-      before_filter :set_content_type
-      before_filter :load_user
-      before_filter :authorize_for_order, :if => Proc.new { order_token.present? }
-      before_filter :authenticate_user
-      before_filter :load_user_roles
+      class_attribute :error_notifier
+
+      before_action :set_content_type
+      before_action :load_user
+      before_action :authorize_for_order, if: Proc.new { order_token.present? }
+      before_action :authenticate_user
+      before_action :load_user_roles
 
       after_filter  :set_jsonp_format
 
-      rescue_from Exception, :with => :error_during_processing
-      rescue_from CanCan::AccessDenied, :with => :unauthorized
-      rescue_from ActiveRecord::RecordNotFound, :with => :not_found
+      rescue_from Exception, with: :error_during_processing
+      rescue_from ActiveRecord::RecordNotFound, with: :not_found
+      rescue_from CanCan::AccessDenied, with: :unauthorized
+      rescue_from Spree::Core::GatewayError, with: :gateway_error
 
       helper Spree::Api::ApiHelpers
 
@@ -81,19 +84,30 @@ module Spree
       end
 
       def load_user_roles
-        @current_user_roles = @current_api_user.spree_roles.pluck(:name)
+        @current_user_roles = if @current_api_user
+          @current_api_user.spree_roles.pluck(:name)
+        else
+          []
+        end
       end
 
       def unauthorized
-        render "spree/api/errors/unauthorized", :status => 401 and return
+        render "spree/api/errors/unauthorized", status: 401 and return
       end
 
       def error_during_processing(exception)
         Rails.logger.error exception.message
         Rails.logger.error exception.backtrace.join("\n")
 
+        error_notifier.call(exception, self) if error_notifier
+
         render :text => { :exception => exception.message }.to_json,
           :status => 422 and return
+      end
+
+      def gateway_error(exception)
+        @order.errors.add(:base, exception.message)
+        invalid_resource!(@order)
       end
 
       def requires_authentication?
@@ -101,7 +115,7 @@ module Spree
       end
 
       def not_found
-        render "spree/api/errors/not_found", :status => 404 and return
+        render "spree/api/errors/not_found", status: 404 and return
       end
 
       def current_ability

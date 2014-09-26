@@ -10,8 +10,7 @@ module Spree
     belongs_to :source, polymorphic: true
     belongs_to :payment_method, class_name: 'Spree::PaymentMethod'
 
-    has_many :offsets, -> { where("source_type = 'Spree::Payment' AND amount < 0 AND state = 'completed'") },
-      class_name: "Spree::Payment", foreign_key: :source_id
+    has_many :offsets, -> { offset_payment }, class_name: "Spree::Payment", foreign_key: :source_id
     has_many :log_entries, as: :source
     has_many :state_changes, as: :stateful
     has_many :capture_events, :class_name => 'Spree::PaymentCaptureEvent'
@@ -24,25 +23,32 @@ module Spree
 
     # update the order totals, etc.
     after_save :update_order
+
     # invalidate previously entered payments
     after_create :invalidate_old_payments
 
     attr_accessor :source_attributes, :request_env
 
     after_initialize :build_source
+    after_rollback :persist_invalid
+
+    validates :amount, numericality: true
+
+    default_scope -> { order("#{self.table_name}.created_at") }
 
     scope :from_credit_card, -> { where(source_type: 'Spree::CreditCard') }
     scope :with_state, ->(s) { where(state: s.to_s) }
+    # "offset" is reserved by activerecord
+    scope :offset_payment, -> { where("source_type = 'Spree::Payment' AND amount < 0 AND state = 'completed'") }
+
+    scope :checkout, -> { with_state('checkout') }
     scope :completed, -> { with_state('completed') }
     scope :pending, -> { with_state('pending') }
     scope :processing, -> { with_state('processing') }
     scope :failed, -> { with_state('failed') }
+
     scope :risky, -> { where("avs_response IN (?) OR (cvv_response_code IS NOT NULL and cvv_response_code != 'M') OR state = 'failed'", RISKY_AVS_CODES) }
     scope :valid, -> { where.not(state: %w(failed invalid)) }
-
-    after_rollback :persist_invalid
-
-    validates :amount, numericality: true
 
     # transaction_id is much easier to understand
     def transaction_id
@@ -178,7 +184,10 @@ module Spree
       end
 
       def create_payment_profile
-        return unless source.respond_to?(:has_payment_profile?) && !source.has_payment_profile?
+        # Payment profile cannot be created without source
+        return unless source
+        # Imported payments shouldn't create a payment profile.
+        return if source.imported
 
         payment_method.create_profile(self)
       rescue ActiveMerchant::ConnectionError => e

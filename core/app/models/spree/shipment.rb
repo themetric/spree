@@ -43,7 +43,7 @@ module Spree
       end
 
       event :ship do
-        transition from: :ready, to: :shipped
+        transition from: [:ready, :canceled], to: :shipped
       end
       after_transition to: :shipped, do: :after_ship
 
@@ -61,7 +61,7 @@ module Spree
         }
         transition from: :canceled, to: :pending
       end
-      after_transition from: :canceled, to: [:pending, :ready], do: :after_resume
+      after_transition from: :canceled, to: [:pending, :ready, :shipped], do: :after_resume
 
       after_transition do |shipment, transition|
         shipment.state_changes.create!(
@@ -186,6 +186,7 @@ module Spree
       pending_payments =  order.pending_payments
                             .sort_by(&:uncaptured_amount).reverse
 
+      # NOTE Do we really need to force orders to have pending payments on dispatch?
       if pending_payments.empty?
         raise Spree::Core::GatewayError, Spree.t(:no_pending_payments)
       else
@@ -281,13 +282,9 @@ module Spree
     end
 
     def to_package
-      package = Stock::Package.new(stock_location, order)
-      grouped_inventory_units = inventory_units.includes(:line_item).group_by do |iu|
-        [iu.line_item, iu.state_name]
-      end
-
-      grouped_inventory_units.each do |(line_item, state_name), inventory_units|
-        package.add line_item, inventory_units.count, state_name
+      package = Stock::Package.new(stock_location)
+      inventory_units.group_by(&:state).each do |state, state_inventory_units|
+        package.add_multiple state_inventory_units, state.to_sym
       end
       package
     end
@@ -353,22 +350,50 @@ module Spree
       after_ship if new_state == 'shipped' and old_state != 'shipped'
     end
 
+    def transfer_to_location(variant, quantity, stock_location)
+      if quantity <= 0
+        raise ArgumentError
+      end
+
+      transaction do
+        new_shipment = order.shipments.create!(stock_location: stock_location)
+
+        order.contents.remove(variant, quantity, {shipment: self})
+        order.contents.add(variant, quantity, {shipment: new_shipment})
+
+        refresh_rates
+        save!
+        new_shipment.save!
+      end
+    end
+
+    def transfer_to_shipment(variant, quantity, shipment_to_transfer_to)
+      quantity_already_shipment_to_transfer_to = shipment_to_transfer_to.manifest.find{|mi| mi.line_item.variant == variant}.try(:quantity) || 0
+      final_quantity = quantity + quantity_already_shipment_to_transfer_to
+
+      if (quantity <= 0 || self == shipment_to_transfer_to)
+        raise ArgumentError
+      end
+
+      transaction do
+        order.contents.remove(variant, quantity, {shipment: self})
+        order.contents.add(variant, quantity, {shipment: shipment_to_transfer_to})
+
+        refresh_rates
+        save!
+        shipment_to_transfer_to.refresh_rates
+        shipment_to_transfer_to.save!
+      end
+    end
+
     private
 
       def after_ship
-        inventory_units.each &:ship!
-        process_order_payments if Spree::Config[:auto_capture_on_dispatch]
-        send_shipped_email
-        touch :shipped_at
-        update_order_shipment_state
+        ShipmentHandler.factory(self).perform
       end
 
       def can_get_rates?
         order.ship_address && order.ship_address.valid?
-      end
-
-      def description_for_shipping_charge
-        "#{Spree.t(:shipping)} (#{shipping_method.name})"
       end
 
       def manifest_restock(item)
@@ -401,14 +426,6 @@ module Spree
         if cost_changed? && state != 'shipped'
           recalculate_adjustments
         end
-      end
-
-      def update_order_shipment_state
-        new_state = OrderUpdater.new(order).update_shipment_state
-        order.update_columns(
-          shipment_state: new_state,
-          updated_at: Time.now,
-        )
       end
 
   end

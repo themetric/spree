@@ -6,7 +6,6 @@ module Spree
     let(:updater) { Spree::OrderUpdater.new(order) }
 
     context "processing payments" do
-
       before do
         # So that Payment#purchase! is called during processing
         Spree::Config[:auto_capture] = true
@@ -15,10 +14,10 @@ module Spree
         order.stub :total => 100
       end
 
-      it 'processes all payments' do
+      it 'processes all checkout payments' do
         payment_1 = create(:payment, :amount => 50)
         payment_2 = create(:payment, :amount => 50)
-        order.stub(:pending_payments).and_return([payment_1, payment_2])
+        order.stub(:unprocessed_payments).and_return([payment_1, payment_2])
 
         order.process_payments!
         updater.update_payment_state
@@ -32,7 +31,7 @@ module Spree
         payment_1 = create(:payment, :amount => 50)
         payment_2 = create(:payment, :amount => 50)
         payment_3 = create(:payment, :amount => 50)
-        order.stub(:pending_payments).and_return([payment_1, payment_2, payment_3])
+        order.stub(:unprocessed_payments).and_return([payment_1, payment_2, payment_3])
 
         order.process_payments!
         updater.update_payment_state
@@ -55,7 +54,6 @@ module Spree
     end
 
     context "ensure source attributes stick around" do
-
       # For the reason of this test, please see spree/spree_gateway#132
       it "does not have inverse_of defined" do
         expect(Spree::Order.reflections[:payments].options[:inverse_of]).to be_nil
@@ -66,7 +64,7 @@ module Spree
         credit_card_payment_method = create(:credit_card_payment_method)
         attributes = {
           :payments_attributes => [
-            { 
+            {
               :payment_method_id => credit_card_payment_method.id,
               :source_attributes => {
                 :name => "Ryan Bigg",
@@ -79,7 +77,7 @@ module Spree
         }
 
         persisted_order.update_attributes(attributes)
-        expect(persisted_order.pending_payments.last.source.number).to be_present
+        expect(persisted_order.unprocessed_payments.last.source.number).to be_present
       end
     end
 
@@ -97,11 +95,11 @@ module Spree
 
     context "#process_payments!" do
       let(:payment) { stub_model(Spree::Payment) }
-      before { order.stub :pending_payments => [payment], :total => 10 }
+      before { order.stub :unprocessed_payments => [payment], :total => 10 }
 
       it "should process the payments" do
         payment.should_receive(:process!)
-        order.process_payments!.should be_true
+        expect(order.process_payments!).to be_truthy
       end
 
       context "when a payment raises a GatewayError" do
@@ -109,14 +107,40 @@ module Spree
 
         it "should return true when configured to allow checkout on gateway failures" do
           Spree::Config.set :allow_checkout_on_gateway_error => true
-          order.process_payments!.should be_true
+          order.process_payments!.should be true
         end
 
         it "should return false when not configured to allow checkout on gateway failures" do
           Spree::Config.set :allow_checkout_on_gateway_error => false
-          order.process_payments!.should be_false
+          order.process_payments!.should be false
         end
       end
+    end
+
+    context "#authorize_payments!" do
+      let(:payment) { stub_model(Spree::Payment) }
+      before { order.stub :unprocessed_payments => [payment], :total => 10 }
+      subject { order.authorize_payments! }
+
+      it "processes payments with attempt_authorization!" do
+        expect(payment).to receive(:authorize!)
+        subject
+      end
+
+      it { should be_truthy }
+    end
+
+    context "#capture_payments!" do
+      let(:payment) { stub_model(Spree::Payment) }
+      before { order.stub :unprocessed_payments => [payment], :total => 10 }
+      subject { order.capture_payments! }
+
+      it "processes payments with attempt_authorization!" do
+        expect(payment).to receive(:purchase!)
+        subject
+      end
+
+      it { should be_truthy }
     end
 
     context "#outstanding_balance" do
@@ -136,29 +160,29 @@ module Spree
       it "should be true when total greater than payment_total" do
         order.total = 10.10
         order.payment_total = 9.50
-        order.outstanding_balance?.should be_true
+        order.outstanding_balance?.should be true
       end
       it "should be true when total less than payment_total" do
         order.total = 8.25
         order.payment_total = 10.44
-        order.outstanding_balance?.should be_true
+        order.outstanding_balance?.should be true
       end
       it "should be false when total equals payment_total" do
         order.total = 10.10
         order.payment_total = 10.10
-        order.outstanding_balance?.should be_false
+        order.outstanding_balance?.should be false
       end
     end
 
     context "payment required?" do
       context "total is zero" do
         before { order.stub(total: 0) }
-        it { order.payment_required?.should be_false }
+        it { order.payment_required?.should be false }
       end
 
       context "total > zero" do
         before { order.stub(total: 1) }
-        it { order.payment_required?.should be_true }
+        it { order.payment_required?.should be true }
       end
     end
   end

@@ -21,7 +21,7 @@ describe Spree::Order do
 
       context "when payment processing succeeds" do
         before do
-          order.stub payments: [1]
+          order.payments << FactoryGirl.create(:payment, state: 'checkout', order: order)
           order.stub process_payments: true
         end
 
@@ -80,7 +80,7 @@ describe Spree::Order do
       it "should be true if shipment_state is #{shipment_state}" do
         order.stub :completed? => true
         order.shipment_state = shipment_state
-        order.can_cancel?.should be_true
+        order.can_cancel?.should be true
       end
     end
 
@@ -88,7 +88,7 @@ describe Spree::Order do
       it "should be false if shipment_state is #{shipment_state}" do
         order.stub :completed? => true
         order.shipment_state = shipment_state
-        order.can_cancel?.should be_false
+        order.can_cancel?.should be false
       end
     end
 
@@ -100,7 +100,7 @@ describe Spree::Order do
                               stub_model(Spree::InventoryUnit, :variant => variant) ]}
     let!(:shipment) do
       shipment = stub_model(Spree::Shipment)
-      shipment.stub :inventory_units => inventory_units
+      shipment.stub :inventory_units => inventory_units, :order => order
       order.stub :shipments => [shipment]
       shipment
     end
@@ -155,6 +155,9 @@ describe Spree::Order do
     end
 
     context "resets payment state" do
+
+      let(:payment) { create(:payment) }
+
       before do
         # TODO: This is ugly :(
         # Stubs methods that cause unwanted side effects in this test
@@ -163,13 +166,15 @@ describe Spree::Order do
         order.stub :has_available_shipment
         order.stub :restock_items!
         shipment.stub(:cancel!)
+        payment.stub(:cancel!)
+        order.stub_chain(:payments, :valid, :size).and_return(1)
+        order.stub_chain(:payments, :completed).and_return([payment])
+        order.stub_chain(:payments, :last).and_return(payment)
       end
 
       context "without shipped items" do
-        it "should set payment state to 'credit owed'" do
-          # Regression test for #3711
-          order.should_receive(:update_column).with(:payment_state, 'credit_owed')
-          order.cancel!
+        it "should set payment state to 'void'" do
+          expect { order.cancel! }.to change{ order.reload.payment_state }.to("void")
         end
       end
 
@@ -190,6 +195,7 @@ describe Spree::Order do
         let(:payment) { create(:payment) }
 
         it "should automatically refund all payments" do
+          order.stub_chain(:payments, :valid, :size).and_return(1)
           order.stub_chain(:payments, :completed).and_return([payment])
           order.stub_chain(:payments, :last).and_return(payment)
           payment.should_receive(:cancel!)

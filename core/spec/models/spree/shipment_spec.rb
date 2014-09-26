@@ -206,7 +206,7 @@ describe Spree::Shipment do
         end
 
         it 'should use symbols for states when adding contents to package' do
-          shipment.stub_chain(:inventory_units, includes: inventory_units)
+          shipment.stub(:inventory_units) { inventory_units }
           package = shipment.to_package
           package.on_hand.count.should eq 1
           package.backordered.count.should eq 1
@@ -274,8 +274,8 @@ describe Spree::Shipment do
 
     context "when shipment state changes to shipped" do
       before do
-        shipment.stub(:send_shipped_email)
-        shipment.stub(:update_order_shipment_state)
+        Spree::ShipmentHandler.any_instance.stub(:send_shipped_email)
+        Spree::ShipmentHandler.any_instance.stub(:update_order_shipment_state)
       end
 
       it "should call after_ship" do
@@ -284,6 +284,35 @@ describe Spree::Shipment do
         shipment.stub determine_state: 'shipped'
         shipment.should_receive(:update_columns).with(state: 'shipped', updated_at: kind_of(Time))
         shipment.update!(order)
+      end
+
+      context "when using the default shipment handler" do
+        it "should call the 'perform' method" do
+          shipment.state = 'pending'
+          shipment.stub determine_state: 'shipped'
+          Spree::ShipmentHandler.any_instance.should_receive(:perform)
+          shipment.update!(order)
+        end
+      end
+
+      context "when using a custom shipment handler" do
+        before do
+          Spree::ShipmentHandler::UPS = Class.new {
+            def initialize(shipment) true end
+            def perform() true end
+          }
+        end
+
+        it "should call the custom handler's 'perform' method" do
+          shipment.state = 'pending'
+          shipment.stub determine_state: 'shipped'
+          Spree::ShipmentHandler::UPS.any_instance.should_receive(:perform)
+          shipment.update!(order)
+        end
+
+        after do
+          Spree::ShipmentHandler.send(:remove_const, :UPS)
+        end
       end
 
       # Regression test for #4347
@@ -313,7 +342,7 @@ describe Spree::Shipment do
 
       it "should validate with inventory" do
         shipment.inventory_units = [create(:inventory_unit)]
-        shipment.valid?.should be_true
+        shipment.valid?.should be true
       end
     end
 
@@ -321,7 +350,7 @@ describe Spree::Shipment do
       before { Spree::Config.set track_inventory_levels: false }
 
       it "should validate with no inventory" do
-        shipment.valid?.should be_true
+        shipment.valid?.should be true
       end
     end
   end
@@ -403,41 +432,65 @@ describe Spree::Shipment do
   end
 
   context "#ship" do
-    before do
-      order.stub(:update!)
-      shipment.stub(require_inventory: false, update_order: true, state: 'ready')
-    end
-
-    it "should update shipped_at timestamp" do
-      shipment.stub(:send_shipped_email)
-      shipment.stub(:update_order_shipment_state)
-      shipment.ship!
-      shipment.shipped_at.should_not be_nil
-      # Ensure value is persisted
-      shipment.reload
-      shipment.shipped_at.should_not be_nil
-    end
-
-    it "should send a shipment email" do
-      mail_message = double 'Mail::Message'
-      shipment_id = nil
-      Spree::ShipmentMailer.should_receive(:shipped_email) { |*args|
-        shipment_id = args[0]
-        mail_message
-      }
-      mail_message.should_receive :deliver
-      shipment.stub(:update_order_shipment_state)
-      shipment.ship!
-      shipment_id.should == shipment.id
-    end
-
-    it "finalizes adjustments" do
-      shipment.stub(:send_shipped_email)
-      shipment.stub(:update_order_shipment_state)
-      shipment.adjustments.each do |adjustment|
-        expect(adjustment).to receive(:finalize!)
+    context "when the shipment is canceled" do
+      let(:shipment_with_inventory_units) { create(:shipment, order: create(:order_with_line_items), state: 'canceled') }
+      let(:subject) { shipment_with_inventory_units.ship! }
+      before do
+        order.stub(:update!)
+        shipment_with_inventory_units.stub(require_inventory: false, update_order: true)
       end
-      shipment.ship!
+
+      it 'unstocks them items' do
+        Spree::ShipmentHandler.any_instance.stub(:update_order_shipment_state)
+        Spree::ShipmentHandler.any_instance.stub(:send_shipped_email)
+
+        shipment_with_inventory_units.stock_location.should_receive(:unstock)
+        subject
+      end
+    end
+
+    ['ready', 'canceled'].each do |state|
+      context "from #{state}" do
+        before do
+          order.stub(:update!)
+          shipment.stub(require_inventory: false, update_order: true, state: state)
+        end
+
+        it "should update shipped_at timestamp" do
+          Spree::ShipmentHandler.any_instance.stub(:update_order_shipment_state)
+          Spree::ShipmentHandler.any_instance.stub(:send_shipped_email)
+
+          shipment.ship!
+          shipment.shipped_at.should_not be_nil
+          # Ensure value is persisted
+          shipment.reload
+          shipment.shipped_at.should_not be_nil
+        end
+
+        it "should send a shipment email" do
+          mail_message = double 'Mail::Message'
+          shipment_id = nil
+          Spree::ShipmentMailer.should_receive(:shipped_email) { |*args|
+            shipment_id = args[0]
+            mail_message
+          }
+          mail_message.should_receive :deliver
+          Spree::ShipmentHandler.any_instance.stub(:update_order_shipment_state)
+
+          shipment.ship!
+          shipment_id.should == shipment.id
+        end
+
+        it "finalizes adjustments" do
+          Spree::ShipmentHandler.any_instance.stub(:update_order_shipment_state)
+          Spree::ShipmentHandler.any_instance.stub(:send_shipped_email)
+
+          shipment.adjustments.each do |adjustment|
+            expect(adjustment).to receive(:finalize!)
+          end
+          shipment.ship!
+        end
+      end
     end
   end
 
@@ -455,6 +508,7 @@ describe Spree::Shipment do
         Spree::Config[:auto_capture_on_dispatch] = true
         @order = create :completed_order_with_pending_payment
         @shipment = @order.shipments.first
+        @shipment.cost = @order.ship_total
       end
 
       it "shipments ready for an order if the order is unpaid" do
@@ -467,12 +521,13 @@ describe Spree::Shipment do
       end
 
       context "order has pending payments" do
-        before do
-          @order.payments << create(:payment)
+        let(:payment) do
+          payment = @order.payments.first
+          payment.update_attribute :state, 'pending'
+          payment
         end
 
         it "can fully capture an authorized payment" do
-          payment = @order.payments.first
           payment.update_attribute(:amount, @order.total)
 
           expect(payment.amount).to eq payment.uncaptured_amount
@@ -481,7 +536,6 @@ describe Spree::Shipment do
         end
 
         it "can partially capture an authorized payment" do
-          payment = @order.payments.first
           payment.update_attribute(:amount, @order.total + 50)
 
           expect(payment.amount).to eq payment.uncaptured_amount
@@ -635,7 +689,7 @@ describe Spree::Shipment do
 
     it "are logged to the database" do
       shipment.state_changes.should be_empty
-      expect(shipment.ready!).to be_true
+      expect(shipment.ready!).to be true
       shipment.state_changes.count.should == 1
       state_change = shipment.state_changes.first
       expect(state_change.previous_state).to eq('pending')

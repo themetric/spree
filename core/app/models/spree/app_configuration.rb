@@ -23,9 +23,9 @@ module Spree
     preference :address_requires_state, :boolean, default: true # should state/state_name be required
     preference :admin_interface_logo, :string, default: 'logo/spree_50.png'
     preference :admin_products_per_page, :integer, default: 10
-    preference :allow_backorder_shipping, :boolean, default: false # should only be true if you don't need to track inventory
     preference :allow_checkout_on_gateway_error, :boolean, default: false
     preference :allow_guest_checkout, :boolean, default: true
+    preference :allow_return_item_amount_editing, :boolean, default: false # Determines whether an admin is allowed to change a return item's pre-calculated amount
     preference :allow_ssl_in_development_and_test, :boolean, default: false
     preference :allow_ssl_in_production, :boolean, default: true
     preference :allow_ssl_in_staging, :boolean, default: true
@@ -47,6 +47,8 @@ module Spree
     preference :display_currency, :boolean, default: false
     preference :default_country_id, :integer
     preference :dismissed_spree_alerts, :string, default: ''
+    preference :expedited_exchanges, :boolean, default: false # NOTE this requires payment profiles to be supported on your gateway of choice as well as a delayed job handler to be configured with activejob. kicks off an exchange shipment upon return authorization save. charge customer if they do not return items within timely manner.
+    preference :expedited_exchanges_days_window, :integer, default: 14 # the amount of days the customer has to return their item after the expedited exchange is shipped in order to avoid being charged
     preference :hide_cents, :boolean, default: false
     preference :last_check_for_spree_alerts, :string, default: nil
     preference :layout, :string, default: 'spree/layouts/spree_application'
@@ -56,9 +58,11 @@ module Spree
     preference :properties_per_page, :integer, default: 15
     preference :products_per_page, :integer, default: 12
     preference :promotions_per_page, :integer, default: 15
+    preference :customer_returns_per_page, :integer, default: 15
     preference :redirect_https_to_http, :boolean, :default => false
     preference :require_master_price, :boolean, default: true
-    preference :shipment_inc_vat, :boolean, default: false
+    preference :restock_inventory, :boolean, default: true # Determines if a return item is restocked automatically once it has been received
+    preference :return_eligibility_number_of_days, :integer, default: 365
     preference :shipping_instructions, :boolean, default: false # Request instructions/info for shipping
     preference :show_only_complete_orders_by_default, :boolean, default: true
     preference :show_variant_full_price, :boolean, default: false #Displays variant full price or difference with product price. Default false to be compatible with older behavior
@@ -66,7 +70,6 @@ module Spree
     preference :show_raw_product_description, :boolean, :default => false
     preference :tax_using_ship_address, :boolean, default: true
     preference :track_inventory_levels, :boolean, default: true # Determines whether to track on_hand values for variants / products.
-    preference :allow_return_item_amount_editing, :boolean, default: false # Determines whether an admin is allowed to change a return item's pre-calculated amount
 
     # Default mail headers settings
     preference :send_core_emails, :boolean, :default => true

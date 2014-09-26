@@ -35,7 +35,7 @@ module Spree
 
         context "promotion has item total rule" do
           let(:shirt) { create(:product) }
-          let!(:rule) { Promotion::Rules::ItemTotal.create(preferred_operator: 'gt', preferred_amount: 50, promotion: promotion) }
+          let!(:rule) { Promotion::Rules::ItemTotal.create(preferred_operator_min: 'gt', preferred_amount_min: 50, preferred_operator_max: 'lt', preferred_amount_max: 150, promotion: promotion) }
 
           before do
             # Makes the order eligible for this promotion
@@ -71,7 +71,7 @@ module Spree
 
         context "promotion has item total rule" do
           let(:shirt) { create(:product) }
-          let!(:rule) { Promotion::Rules::ItemTotal.create(preferred_operator: 'gt', preferred_amount: 50, promotion: promotion) }
+          let!(:rule) { Promotion::Rules::ItemTotal.create(preferred_operator_min: 'gt', preferred_amount_min: 50, preferred_operator_max: 'lt', preferred_amount_max: 150, promotion: promotion) }
 
           before do
             # Makes the order eligible for this promotion
@@ -80,6 +80,21 @@ module Spree
           end
 
           include_context "creates the adjustment"
+        end
+      end
+
+      context "activates promotions associated with the order" do
+        let(:promo) { create :promotion_with_item_adjustment, adjustment_rate: 5, code: 'promo' }
+        let(:adjustable) { line_item }
+
+        before do
+          order.promotions << promo
+        end
+
+        it "creates the adjustment" do
+          expect {
+            subject.activate
+          }.to change { adjustable.adjustments.count }.by(1)
         end
       end
     end
